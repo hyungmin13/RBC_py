@@ -78,47 +78,9 @@ def PINN_loss(dynamic_params, all_params, g_batch, particles, particle_vel, mode
     out_y, out_yy = equ_func(all_params, g_batch, jnp.tile(jnp.array([[0.0, 0.0, 1.0, 0.0]]),(g_batch.shape[0],1)),model_fns)
     out_z, out_zz = equ_func(all_params, g_batch, jnp.tile(jnp.array([[0.0, 0.0, 0.0, 1.0]]),(g_batch.shape[0],1)),model_fns)
 
-    p_out, p_out_t = equ_func2(all_params, particles, jnp.tile(jnp.array([[1.0, 0.0, 0.0, 0.0]]),(particles.shape[0],1)),model_fns)
-    p_out_x, p_out_xx = equ_func(all_params, particles, jnp.tile(jnp.array([[0.0, 1.0, 0.0, 0.0]]),(particles.shape[0],1)),model_fns)
-    p_out_y, p_out_yy = equ_func(all_params, particles, jnp.tile(jnp.array([[0.0, 0.0, 1.0, 0.0]]),(particles.shape[0],1)),model_fns)
-    p_out_z, p_out_zz = equ_func(all_params, particles, jnp.tile(jnp.array([[0.0, 0.0, 0.0, 1.0]]),(particles.shape[0],1)),model_fns)
-
-    p_u = all_params["data"]['u_ref']*p_out[:,0:1]
-    p_v = all_params["data"]['v_ref']*p_out[:,1:2]
-    p_w = all_params["data"]['w_ref']*p_out[:,2:3]
-
-    p_ut = all_params["data"]['u_ref']*p_out_t[:,0:1]/all_params["data"]["domain_range"]["t"][1]
-    p_vt = all_params["data"]['v_ref']*p_out_t[:,1:2]/all_params["data"]["domain_range"]["t"][1]
-    p_wt = all_params["data"]['w_ref']*p_out_t[:,2:3]/all_params["data"]["domain_range"]["t"][1]
-
-    p_ux = all_params["data"]['u_ref']*p_out_x[:,0:1]/all_params["data"]["domain_range"]["x"][1]
-    p_vx = all_params["data"]['v_ref']*p_out_x[:,1:2]/all_params["data"]["domain_range"]["x"][1]
-    p_wx = all_params["data"]['w_ref']*p_out_x[:,2:3]/all_params["data"]["domain_range"]["x"][1]
-    p_px = all_params["data"]['u_ref']*p_out_x[:,3:4]/all_params["data"]["domain_range"]["x"][1]
-
-    p_uy = all_params["data"]['u_ref']*p_out_y[:,0:1]/all_params["data"]["domain_range"]["y"][1]
-    p_vy = all_params["data"]['v_ref']*p_out_y[:,1:2]/all_params["data"]["domain_range"]["y"][1]
-    p_wy = all_params["data"]['w_ref']*p_out_y[:,2:3]/all_params["data"]["domain_range"]["y"][1]
-    p_py = all_params["data"]['u_ref']*p_out_y[:,3:4]/all_params["data"]["domain_range"]["y"][1]
-
-    p_uz = all_params["data"]['u_ref']*p_out_z[:,0:1]/all_params["data"]["domain_range"]["z"][1]
-    p_vz = all_params["data"]['v_ref']*p_out_z[:,1:2]/all_params["data"]["domain_range"]["z"][1]
-    p_wz = all_params["data"]['w_ref']*p_out_z[:,2:3]/all_params["data"]["domain_range"]["z"][1]
-    p_pz = all_params["data"]['u_ref']*p_out_z[:,3:4]/all_params["data"]["domain_range"]["z"][1]
-
-    p_uxx = all_params["data"]['u_ref']*p_out_xx[:,0:1]/all_params["data"]["domain_range"]["x"][1]**2
-    p_vxx = all_params["data"]['v_ref']*p_out_xx[:,1:2]/all_params["data"]["domain_range"]["x"][1]**2
-    p_wxx = all_params["data"]['w_ref']*p_out_xx[:,2:3]/all_params["data"]["domain_range"]["x"][1]**2
-
-    p_uyy = all_params["data"]['u_ref']*p_out_yy[:,0:1]/all_params["data"]["domain_range"]["y"][1]**2
-    p_vyy = all_params["data"]['v_ref']*p_out_yy[:,1:2]/all_params["data"]["domain_range"]["y"][1]**2
-    p_wyy = all_params["data"]['w_ref']*p_out_yy[:,2:3]/all_params["data"]["domain_range"]["y"][1]**2
-
-    p_uzz = all_params["data"]['u_ref']*p_out_zz[:,0:1]/all_params["data"]["domain_range"]["z"][1]**2
-    p_vzz = all_params["data"]['v_ref']*p_out_zz[:,1:2]/all_params["data"]["domain_range"]["z"][1]**2
-    p_wzz = all_params["data"]['w_ref']*p_out_zz[:,2:3]/all_params["data"]["domain_range"]["z"][1]**2
-
-
+    p_out = model_fns(all_params, particles)
+    #b_out = model_fns(all_params, boundaries)
+    #out, out_t, out_x, out_xx, out_y, out_yy, out_z, out_zz = eqn_func(g_batch)
     u = all_params["data"]['u_ref']*out[:,0:1]
     v = all_params["data"]['v_ref']*out[:,1:2]
     w = all_params["data"]['w_ref']*out[:,2:3]
@@ -153,25 +115,25 @@ def PINN_loss(dynamic_params, all_params, g_batch, particles, particle_vel, mode
     uzz = all_params["data"]['u_ref']*out_zz[:,0:1]/all_params["data"]["domain_range"]["z"][1]**2
     vzz = all_params["data"]['v_ref']*out_zz[:,1:2]/all_params["data"]["domain_range"]["z"][1]**2
     wzz = all_params["data"]['w_ref']*out_zz[:,2:3]/all_params["data"]["domain_range"]["z"][1]**2
+       
 
-
-    loss_u = p_out[:,0:1] - particle_vel[:,0:1]
+    loss_u = all_params["data"]['u_ref']*p_out[:,0:1] - particle_vel[:,0:1]
     loss_u = jnp.mean(loss_u**2)
 
-    loss_v = p_out[:,1:2] - particle_vel[:,1:2]
+    loss_v = all_params["data"]['v_ref']*p_out[:,1:2] - particle_vel[:,1:2]
     loss_v = jnp.mean(loss_v**2)
 
-    loss_w = p_out[:,2:3] - particle_vel[:,2:3]
+    loss_w = all_params["data"]['w_ref']*p_out[:,2:3] - particle_vel[:,2:3]
     loss_w = jnp.mean(loss_w**2)
+    
+    #loss_u_b = all_params["data"]['u_ref']*b_out[:,0:1]
+    #loss_u_b = jnp.mean(loss_u_b**2)
 
-    loss_con_p = p_ux + p_vy + p_wz
-    loss_con_p = jnp.mean(loss_con_p**2)
-    loss_NS1_p = p_ut + p_u*p_ux + p_v*p_uy + p_w*p_uz + p_px - all_params["data"]["viscosity"]*(p_uxx+p_uyy+p_uzz)
-    loss_NS1_p = jnp.mean(loss_NS1_p**2)
-    loss_NS2_p = p_vt + p_u*p_vx + p_v*p_vy + p_w*p_vz + p_py - all_params["data"]["viscosity"]*(p_vxx+p_vyy+p_vzz)
-    loss_NS2_p = jnp.mean(loss_NS2_p**2)
-    loss_NS3_p = p_wt + p_u*p_wx + p_v*p_wy + p_w*p_wz + p_pz - all_params["data"]["viscosity"]*(p_wxx+p_wyy+p_wzz)
-    loss_NS3_p = jnp.mean(loss_NS3_p**2)
+    #loss_v_b = all_params["data"]['v_ref']*b_out[:,1:2]
+    #loss_v_b = jnp.mean(loss_v_b**2)
+
+    #loss_w_b = all_params["data"]['w_ref']*b_out[:,2:3]
+    #loss_w_b = jnp.mean(loss_w_b**2)
     
     loss_con = ux + vy + wz
     loss_con = jnp.mean(loss_con**2)
@@ -185,8 +147,8 @@ def PINN_loss(dynamic_params, all_params, g_batch, particles, particle_vel, mode
 
     loss_NS3 = jnp.mean(loss_NS3**2)
     total_loss = weights[0]*loss_u + weights[1]*loss_v + weights[2]*loss_w + \
-                 weights[3]*(loss_con + loss_con_p) + weights[4]*(loss_NS1 + loss_NS1_p) + \
-                 weights[5]*(loss_NS2 + loss_NS2_p) + weights[6]*(loss_NS3 + loss_NS3_p) #+ weights[7]*(loss_u_b + loss_v_b + loss_w_b)
+                 weights[3]*loss_con + weights[4]*loss_NS1 + weights[5]*loss_NS2 + \
+                 weights[6]*loss_NS3 #+ weights[7]*(loss_u_b + loss_v_b + loss_w_b)
     return total_loss
 
 @partial(jax.jit, static_argnums=(1, 4, 8))
@@ -346,8 +308,8 @@ if __name__=="__main__":
 
     # Set Domain params
     frequency = 33
-    domain_range = {'t':(0,100/frequency), 'x':(0,0.2), 'y':(0,0.2), 'z':(0,0.2)}
-    grid_size = [101, 340, 340, 340]
+    domain_range = {'t':(0,101/frequency), 'x':(0,0.2), 'y':(0,0.2), 'z':(0,0.2)}
+    grid_size = [101, 2800, 600, 212]
     bound_keys = ['ic', 'bcxu', 'bcxl', 'bcyu', 'bcyl', 'bczu', 'bczl']
 
     # Set Data params
@@ -356,14 +318,14 @@ if __name__=="__main__":
     track_limit = 424070
     viscosity = 15.314*10**(-6)
     data_keys = ['pos', 'vel', 'acc']
-    bound = True
+    
     # Set network params
     key = random.PRNGKey(1)
-    layer_sizes = [4, 400, 400, 400, 400, 400, 400, 400, 4]
+    layer_sizes = [4, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 4]
     network_name = 'MLP'
 
     # Set problem params
-    viscosity = 15e-6
+    viscosity = 15.314e-6
     loss_weights = (1.0, 1.0, 1.0, 0.0000001, 0.00000001, 0.00000001, 0.00000001, 1.0)
     path_s = 'RBC_challenge_data/fitted_0_05ppp_valid/'
     problem_name = 'RBC'
@@ -381,8 +343,7 @@ if __name__=="__main__":
         domain_init_kwargs = dict(domain_range = domain_range, frequency = frequency, 
                                   grid_size = grid_size, bound_keys=bound_keys),
         data_init_kwargs = dict(path = path, domain_range = domain_range, timeskip = timeskip,
-                                track_limit = track_limit, frequency = frequency, 
-                                data_keys = data_keys, viscosity = viscosity, bound = bound),
+                                track_limit = track_limit, frequency = frequency, data_keys = data_keys, viscosity = viscosity),
         network_init_kwargs = dict(key = key, layer_sizes = layer_sizes, network_name = network_name),
         problem_init_kwargs = dict(domain_range = domain_range, viscosity = viscosity, loss_weights = loss_weights,
                                    path_s = path_s, frequency = frequency, problem_name = problem_name),
