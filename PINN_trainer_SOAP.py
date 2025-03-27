@@ -268,7 +268,7 @@ class PINN(PINNbase):
         model_fn = c.network.network_fn
         return all_params, model_fn, train_data, valid_data
     def report(self, i, model_states, dynamic_params, all_params, p_batch, v_batch, valid_data, e_batch_key, model_fns):
-        model_save = (i % 20000 == 0)
+        model_save = (i % 2000 == 0)
         if model_save:
             all_params["network"]["layers"] = dynamic_params
             e_key = next(e_batch_key)
@@ -303,13 +303,13 @@ if __name__=="__main__":
     from PINN_network import *
     from PINN_constants import *
     from PINN_problem import *
-    run = "RBC_SOAP_k1"
+    run = "RBC_SOAP_k1run2"
     all_params = {"domain":{}, "data":{}, "network":{}, "problem":{}}
 
     # Set Domain params
     frequency = 33
     domain_range = {'t':(0,101/frequency), 'x':(0,0.2), 'y':(0,0.2), 'z':(0,0.2)}
-    grid_size = [101, 2800, 600, 212]
+    grid_size = [101, 400, 400, 400]
     bound_keys = ['ic', 'bcxu', 'bcxl', 'bcyu', 'bcyl', 'bczu', 'bczl']
 
     # Set Data params
@@ -326,7 +326,7 @@ if __name__=="__main__":
 
     # Set problem params
     viscosity = 15.314e-6
-    loss_weights = (1.0, 1.0, 1.0, 0.0000001, 0.00000001, 0.00000001, 0.00000001, 1.0)
+    loss_weights = (1.0, 1.0, 1.0, 0.000001, 0.0000001, 0.0000001, 0.0000001, 1.0)
     path_s = 'RBC_challenge_data/fitted_0_05ppp_valid/'
     problem_name = 'RBC'
     # Set optimization params
