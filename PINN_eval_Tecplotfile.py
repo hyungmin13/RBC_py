@@ -41,11 +41,11 @@ class PINN(PINNbase):
         all_params["problem"] = self.c.problem.init_params(**self.c.problem_init_kwargs)
         optimiser = self.c.optimization_init_kwargs["optimiser"](self.c.optimization_init_kwargs["learning_rate"])
         grids, all_params = self.c.domain.sampler(all_params)
-        train_data, all_params = self.c.data.train_data(all_params)
+        train_data,valid_data, all_params = self.c.data.train_data(all_params)
         all_params = self.c.problem.constraints(all_params)
-        valid_data = self.c.problem.exact_solution(all_params)
+        #valid_data = self.c.problem.exact_solution(all_params)
         model_fn = c.network.network_fn
-        return all_params, model_fn, train_data, valid_data
+        return all_params, model_fn, train_data, valid_data, grids
     
 def equ_func(all_params, g_batch, cotangent, model_fns):
     def u_t(batch):
@@ -65,22 +65,48 @@ def Derivatives(dynamic_params, all_params, g_batch, model_fns):
     keys = ['u_ref', 'v_ref', 'w_ref', 'u_ref']
 
     all_params["network"]["layers"] = dynamic_params
-    out, out_x = equ_func2(all_params, g_batch, jnp.tile(jnp.array([[0.0, 1.0, 0.0, 0.0]]),(g_batch.shape[0],1)),model_fns)
-    out, out_y = equ_func2(all_params, g_batch, jnp.tile(jnp.array([[0.0, 0.0, 1.0, 0.0]]),(g_batch.shape[0],1)),model_fns)
-    out, out_z = equ_func2(all_params, g_batch, jnp.tile(jnp.array([[0.0, 0.0, 0.0, 1.0]]),(g_batch.shape[0],1)),model_fns)    
-    uvwp = np.concatenate([out[:,k:(k+1)]*all_params["data"][keys[k]] for k in range(len(keys))],1)
-    uvwp[:,-1] = 1.185*uvwp[:,-1]
-    uxs = np.concatenate([out_x[:,k:(k+1)]*all_params["data"][keys[k]]/all_params["domain"]["in_max"][0,1] for k in range(len(keys))],1)
-    uys = np.concatenate([out_y[:,k:(k+1)]*all_params["data"][keys[k]]/all_params["domain"]["in_max"][0,2] for k in range(len(keys))],1)
-    uzs = np.concatenate([out_z[:,k:(k+1)]*all_params["data"][keys[k]]/all_params["domain"]["in_max"][0,3] for k in range(len(keys))],1)
-    deriv_mat = np.concatenate([np.expand_dims(uxs,2),np.expand_dims(uys,2),np.expand_dims(uzs,2)],2)
-    vor_mag = np.sqrt((deriv_mat[:,1,2]-deriv_mat[:,2,1])**2+
-                      (deriv_mat[:,2,0]-deriv_mat[:,0,2])**2+
-                      (deriv_mat[:,0,1]-deriv_mat[:,1,0])**2)
-    Q = 0.5 * sum(-np.abs(0.5 * (deriv_mat[:, i, j] + deriv_mat[:, j, i]))**2 +
-                  np.abs(0.5 * (deriv_mat[:, i, j] - deriv_mat[:, j, i]))**2 
-                  for i in range(3) for j in range(3))
-    return uvwp, vor_mag, Q
+    out, out_t = equ_func2(all_params, g_batch, jnp.tile(jnp.array([[1.0, 0.0, 0.0, 0.0]]),(g_batch.shape[0],1)),model_fns)
+    _, out_x = equ_func2(all_params, g_batch, jnp.tile(jnp.array([[0.0, 1.0, 0.0, 0.0]]),(g_batch.shape[0],1)),model_fns)
+    _, out_y = equ_func2(all_params, g_batch, jnp.tile(jnp.array([[0.0, 0.0, 1.0, 0.0]]),(g_batch.shape[0],1)),model_fns)
+    _, out_z = equ_func2(all_params, g_batch, jnp.tile(jnp.array([[0.0, 0.0, 0.0, 1.0]]),(g_batch.shape[0],1)),model_fns)    
+
+    u = all_params["data"]['u_ref']*out[:,0:1]
+    v = all_params["data"]['v_ref']*out[:,1:2]
+    w = all_params["data"]['w_ref']*out[:,2:3]
+    p = 1.185*all_params["data"]['u_ref']*out[:,3:4]
+    uvwp = np.concatenate([u, v, w, p],1)
+    ut = all_params["data"]['u_ref']*out_t[:,0:1]/all_params["data"]["domain_range"]["t"][1]
+    vt = all_params["data"]['v_ref']*out_t[:,1:2]/all_params["data"]["domain_range"]["t"][1]
+    wt = all_params["data"]['w_ref']*out_t[:,2:3]/all_params["data"]["domain_range"]["t"][1]
+
+    ux = all_params["data"]['u_ref']*out_x[:,0:1]/all_params["data"]["domain_range"]["x"][1]
+    vx = all_params["data"]['v_ref']*out_x[:,1:2]/all_params["data"]["domain_range"]["x"][1]
+    wx = all_params["data"]['w_ref']*out_x[:,2:3]/all_params["data"]["domain_range"]["x"][1]
+
+    uy = all_params["data"]['u_ref']*out_y[:,0:1]/all_params["data"]["domain_range"]["y"][1]
+    vy = all_params["data"]['v_ref']*out_y[:,1:2]/all_params["data"]["domain_range"]["y"][1]
+    wy = all_params["data"]['w_ref']*out_y[:,2:3]/all_params["data"]["domain_range"]["y"][1]
+
+    uz = all_params["data"]['u_ref']*out_z[:,0:1]/all_params["data"]["domain_range"]["z"][1]
+    vz = all_params["data"]['v_ref']*out_z[:,1:2]/all_params["data"]["domain_range"]["z"][1]
+    wz = all_params["data"]['w_ref']*out_z[:,2:3]/all_params["data"]["domain_range"]["z"][1]
+    
+    
+    acc_x = ut + u*ux + v*uy + w*uz
+    acc_y = vt + u*vx + v*vy + w*vz
+    acc_z = wt + u*wx + v*wy + w*wz
+    acc = np.concatenate([acc_x, acc_y, acc_z],1)
+
+    matrix1 = [ux, uy, uz, vx, vy, vz, wx, wy, wz]
+    matrix2 = [ux, vx, wx, uy, vy, wy, uz, vz, wz]
+    vor_mag = np.sqrt((uz-wx)**2+(uy-vx)**2+(vz-wy)**2)
+    Q = 0
+    for i,j in zip(matrix1, matrix2):
+        S = 0.5*(i + j)
+        P = 0.5*(i - j)
+        Q = Q + 0.5* ((np.abs(P))**2 - (np.abs(S))**2)
+
+    return uvwp, acc, vor_mag, Q
 
 #%%
 if __name__ == "__main__":
@@ -92,24 +118,20 @@ if __name__ == "__main__":
     import argparse
     from glob import glob
 
-    #parser = argparse.ArgumentParser(description='TBL_PINN')
-    #parser.add_argument('-c', '--checkpoint', type=str, help='checkpoint', default="")
-    #args = parser.parse_args()
-    #checkpoint_fol = args.checkpoint
-    #print(checkpoint_fol, type(checkpoint_fol))
-    checkpoint_fol = "TBL_run_test60"
-    u_tau = 15*10**(-6)/36.2/10**(-6)
-    u_ref_n = 4.9968*10**(-2)/u_tau
-    delta = 36.2*10**(-6)
-    x_ref_n = 1.0006*10**(-3)/delta
+    parser = argparse.ArgumentParser(description='RBC_PINN')
+    parser.add_argument('-c', '--checkpoint', type=str, help='checkpoint', default="")
+    #parser.add_argumnet('-t', '--timestep', type=int, help='timestep', default="")
+    args = parser.parse_args()
+    checkpoint_fol = args.checkpoint
 
     path = "results/summaries/"
     with open(path+checkpoint_fol+'/constants_'+ str(checkpoint_fol) +'.pickle','rb') as f:
         a = pickle.load(f)
-    a['data_init_kwargs']['path'] = 'DNS/'
-    a['problem_init_kwargs']['path_s'] = 'Ground/'
-    with open(path+checkpoint_fol+'/constants_'+ str(checkpoint_fol) +'.pickle','wb') as f:
-        pickle.dump(a,f)
+    a['domain_init_kwargs']['grid_size'] = [101, 120, 120, 120]
+    #a['data_init_kwargs']['path'] = '/scratch/hyun/UrbanRescue/run065/'
+    #a['problem_init_kwargs']['path_s'] = 'Ground/'
+    #with open(path+checkpoint_fol+'/constants_'+ str(checkpoint_fol) +'.pickle','wb') as f:
+    #    pickle.dump(a,f)
 
     values = list(a.values())
 
@@ -121,82 +143,56 @@ if __name__ == "__main__":
                 optimization_init_kwargs = values[5],)
     run = PINN(c)
     checkpoint_list = sorted(glob(run.c.model_out_dir+'/*.pkl'), key=lambda x: int(x.split('_')[4].split('.')[0]))
-    print(checkpoint_list)
     with open(checkpoint_list[-1],'rb') as f:
         a = pickle.load(f)
-    all_params, model_fn, train_data, valid_data = run.test()
+    all_params, model_fn, train_data, valid_data, grids = run.test()
 
     model = Model(all_params["network"]["layers"], model_fn)
     all_params["network"]["layers"] = from_state_dict(model, a).params
 
 #%%
-    timestep = 24
     pos_ref = all_params["domain"]["in_max"].flatten()
     vel_ref = np.array([all_params["data"]["u_ref"],
                         all_params["data"]["v_ref"],
                         all_params["data"]["w_ref"]])
-#%%
+
     ref_key = ['t_ref', 'x_ref', 'y_ref', 'z_ref', 'u_ref', 'v_ref', 'w_ref']
     ref_data = {ref_key[i]:ref_val for i, ref_val in enumerate(np.concatenate([pos_ref,vel_ref]))}
-<<<<<<< HEAD
-    datapath = 'eval_grid/PG_TBL_dnsinterp.mat'
-=======
-    datapath = '/home/hgf_dlr/hgf_dzj2734/TBL/PG_TBL_dnsinterp.mat'
->>>>>>> cdaa948c5da7bb201350dfe37947e239f619b680
-    data = loadmat(datapath)
-    eval_key = ['x', 'y', 'z', 'x_pred', 'y_pred', 'z_pred', 'u1', 'v1', 'w1', 'p1', 'um', 'vm', 'wm']
-    DNS_grid = (0.001*data['y'][:,0,0], 0.001*data['x'][0,:,0], 0.001*data['z'][0,0,:])
-    eval_grid = np.concatenate([0.001*data['y_pred'].reshape(32,88,410)[:31,:,:].reshape(-1,1),
-                                0.001*data['x_pred'].reshape(32,88,410)[:31,:,:].reshape(-1,1),
-                                0.001*data['z_pred'].reshape(32,88,410)[:31,:,:].reshape(-1,1)],1)
-    vel_ground = [interpn(DNS_grid, data[eval_key[i+6]], eval_grid).reshape(31,88,410) for i in range(3)]
-    fluc_ground = [interpn(DNS_grid, data[eval_key[i+6]], eval_grid).reshape(31,88,410) - data[eval_key[i+10]].reshape(32,88,410)[:31,:,:] for i in range(3)]
-    p_cent = interpn(DNS_grid, data['p1'], eval_grid).reshape(31,88,410)
-    fluc_ground.append(p_cent-np.mean(p_cent))
-    V_mag = np.sqrt(fluc_ground[0]**2+fluc_ground[1]**2+fluc_ground[2]**2)
-    div_list = [V_mag, V_mag, V_mag, fluc_ground[-1]]
-    fluc_ground[-1] = (fluc_ground[-1]*u_ref_n**2 - 0.0025*eval_grid[:,1].reshape(31,88,410)[0,0,:]*x_ref_n)/u_ref_n**2
-
-    eval_grid_n = np.concatenate([np.zeros((eval_grid.shape[0],1))+timestep*(1/17954),
-                                eval_grid[:,1:2], eval_grid[:,0:1], eval_grid[:,2:3]],1)
-    for i in range(eval_grid_n.shape[1]): eval_grid_n[:,i] = eval_grid_n[:,i]/ref_data[ref_key[i]] 
-#%%
-    eval_grid_z = eval_grid.reshape(31,88,410,3)
-    x_e = eval_grid_z[:,:,:,1]
-    y_e = eval_grid_z[:,:,:,0]
-    z_e = eval_grid_z[:,:,:,2]
 
 #%%
-    dynamic_params = all_params["network"].pop("layers")
-    uvwp, vor_mag, Q = zip(*[Derivatives(dynamic_params, all_params, eval_grid_n[i:i+10000], model_fn) 
-                             for i in range(0, eval_grid_n.shape[0], 10000)])
-    uvwp = np.concatenate(uvwp, axis=0)
-    vor_mag = np.concatenate(vor_mag, axis=0)
-    Q = np.concatenate(Q, axis=0)
+    for s in range(5):
+        timestep =s+47
+        mesh_xyz = np.meshgrid(grids['eqns']['x'], grids['eqns']['y'], grids['eqns']['z'], indexing='ij')
+        shape = mesh_xyz[0].reshape(-1).shape[0]
+        eval_grid = np.concatenate([np.zeros((shape,1))+grids['eqns']['t'][timestep],mesh_xyz[0].reshape(-1,1),
+                                    mesh_xyz[1].reshape(-1,1),mesh_xyz[2].reshape(-1,1)],1)
+        x_e = eval_grid[:,1].reshape(120,120,120)*ref_data['x_ref']
+        y_e = eval_grid[:,2].reshape(120,120,120)*ref_data['y_ref']
+        z_e = eval_grid[:,3].reshape(120,120,120)*ref_data['z_ref']
 
-    u_fluc = uvwp[:,0].reshape(31,88,410) - data[eval_key[10]].reshape(32,88,410)[:31,:,:]
-    v_fluc = uvwp[:,1].reshape(31,88,410) - data[eval_key[11]].reshape(32,88,410)[:31,:,:]
-    w_fluc = uvwp[:,2].reshape(31,88,410) - data[eval_key[12]].reshape(32,88,410)[:31,:,:]
-    p_cent = uvwp[:,3].reshape(31,88,410) - np.mean(uvwp[:,3].reshape(31,88,410))
-
-    u_error = np.sqrt(np.square(uvwp[:,0].reshape(31,88,410) - vel_ground[0]))
-    v_error = np.sqrt(np.square(uvwp[:,1].reshape(31,88,410) - vel_ground[1]))
-    w_error = np.sqrt(np.square(uvwp[:,2].reshape(31,88,410) - vel_ground[2]))
-    p_error = np.sqrt(np.square(uvwp[:,3].reshape(31,88,410) - fluc_ground[3]))
 #%%
-    filename = "datas/"+checkpoint_fol+"/TBL_eval_"+str(timestep)+".dat"
-    if os.path.isdir("datas/"+checkpoint_fol):
-        pass
-    else:
-        os.mkdir("datas/"+checkpoint_fol)
-    X, Y, Z = (x_e[0,0,:].shape[0], y_e[0,:,0].shape[0], z_e[:31,0,0].shape[0])
-    vars = [('u_ground[m/s]', np.float32(vel_ground[0].reshape(-1))), ('v_ground[m/s]', np.float32(vel_ground[1].reshape(-1))), ('w_ground[m/s]', np.float32(vel_ground[2].reshape(-1))), ('p_ground[Pa]', np.float32(fluc_ground[-1].reshape(-1))),
-            ('u_fluc_ground[m/s]', np.float32(fluc_ground[0].reshape(-1))), ('v_fluc_ground[m/s]', np.float32(fluc_ground[1].reshape(-1))), ('w_fluc_ground[m/s]', np.float32(fluc_ground[2].reshape(-1))),
-            ('u_pred[m/s]',np.float32(uvwp[:,0].reshape(31,88,410).reshape(-1))), ('v_pred[m/s]',uvwp[:,1].reshape(31,88,410).reshape(-1)),
-            ('w_pred[m/s]',uvwp[:,2].reshape(31,88,410).reshape(-1)), ('p_pred[Pa]',uvwp[:,3].reshape(-1)),
-            ('u_fluc[m/s]',u_fluc.reshape(-1)), ('v_fluc[m/s]',v_fluc.reshape(-1)), ('w_fluc[m/s]',w_fluc.reshape(-1)),
-            ('u_error[m/s]',u_error.reshape(-1)), ('v_error[m/s]',v_error.reshape(-1)), ('w_error[m/s]',w_error.reshape(-1)), ('p_error[Pa]',p_error.reshape(-1)),
-            ('vormag[1/s]',vor_mag.reshape(-1)), ('Q[1/s^2]', Q.reshape(-1))]
-    fw = 27
-    tecplot_Mesh(filename, X, Y, Z, x_e.reshape(-1), y_e.reshape(-1), z_e.reshape(-1), vars, fw)
+        dynamic_params = all_params["network"].pop("layers")
+        uvwp, acc, vor_mag, Q = zip(*[Derivatives(dynamic_params, all_params, eval_grid[i:i+10000], model_fn) 
+                                for i in range(0, eval_grid.shape[0], 10000)])
+        uvwp = np.concatenate(uvwp, axis=0)
+        vor_mag = np.concatenate(vor_mag, axis=0)
+        acc = np.concatenate(acc, axis=0)
+        Q = np.concatenate(Q, axis=0)
+
+        filename = "Tecplot_data/"+checkpoint_fol+"/QUD_eval_"+str(timestep)+".dat"
+        if os.path.isdir("Tecplot_data/"+checkpoint_fol):
+            pass
+        else:
+            os.mkdir("Tecplot_data/"+checkpoint_fol)
+        X, Y, Z = (x_e[0,0,:].shape[0], y_e[0,:,0].shape[0], z_e[:,0,0].shape[0])
+        vars = [('u_pred[m/s]',np.float32(uvwp[:,0].reshape(-1))), ('v_pred[m/s]',uvwp[:,1].reshape(-1)),
+                ('w_pred[m/s]',uvwp[:,2].reshape(-1)), ('p_pred[Pa]',uvwp[:,3].reshape(-1)),
+                ('acc_x [m/s^2]',acc[:,0].reshape(-1)), ('acc_y [m/s^2]',acc[:,1].reshape(-1)),
+                ('acc_z [m/s^2]',acc[:,2].reshape(-1)),
+                ('vormag[1/s]',vor_mag.reshape(-1)), ('Q[1/s^2]', Q.reshape(-1))]
+        fw = 27
+        tecplot_Mesh(filename, X, Y, Z, x_e.reshape(-1), y_e.reshape(-1), z_e.reshape(-1), vars, fw)
+        total = np.concatenate([uvwp, acc, vor_mag.reshape(-1,1), Q.reshape(-1,1)],1)
+        with open("Tecplot_data/"+checkpoint_fol+"/QUD_eval_"+str(timestep)+".pickle", 'wb') as f:
+            pickle.dump(ref_data, f)
 
