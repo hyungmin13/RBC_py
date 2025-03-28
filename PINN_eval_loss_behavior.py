@@ -122,7 +122,7 @@ if __name__ == "__main__":
     import argparse
     from glob import glob
     #checkpoint_fol = "TBL_run_test61"
-    parser = argparse.ArgumentParser(description='TBL_PINN')
+    parser = argparse.ArgumentParser(description='RBC_PINN')
     parser.add_argument('-c', '--checkpoint', type=str, help='checkpoint', default="")
     args = parser.parse_args()
     checkpoint_fol = args.checkpoint
@@ -130,10 +130,7 @@ if __name__ == "__main__":
     path = "results/summaries/"
     with open(path+checkpoint_fol+'/constants_'+ str(checkpoint_fol) +'.pickle','rb') as f:
         a = pickle.load(f)
-    a['data_init_kwargs']['path'] = 'DNS/'
-    a['problem_init_kwargs']['path_s'] = 'Ground/'
-    with open(path+checkpoint_fol+'/constants_'+ str(checkpoint_fol) +'.pickle','wb') as f:
-        pickle.dump(a,f)
+
 
     values = list(a.values())
 
@@ -150,34 +147,10 @@ if __name__ == "__main__":
     
 
 
-#%%
-    u_tau = 15*10**(-6)/36.2/10**(-6)
-    u_ref_n = 4.9968*10**(-2)/u_tau
-    delta = 36.2*10**(-6)
-    x_ref_n = 1.0006*10**(-3)/delta
-
-    timestep = 24
-
-    datapath = '/home/hgf_dlr/hgf_dzj2734/TBL/PG_TBL_dnsinterp.mat'
-    data = loadmat(datapath)
-    eval_key = ['x', 'y', 'z', 'x_pred', 'y_pred', 'z_pred', 'u1', 'v1', 'w1', 'p1', 'um', 'vm', 'wm']
-    DNS_grid = (0.001*data['y'][:,0,0], 0.001*data['x'][0,:,0], 0.001*data['z'][0,0,:])
-    eval_grid = np.concatenate([0.001*data['y_pred'].reshape(32,88,410)[:31,:,:].reshape(-1,1),
-                                0.001*data['x_pred'].reshape(32,88,410)[:31,:,:].reshape(-1,1),
-                                0.001*data['z_pred'].reshape(32,88,410)[:31,:,:].reshape(-1,1)],1)
-    vel_ground = [interpn(DNS_grid, data[eval_key[i+6]], eval_grid).reshape(31,88,410) for i in range(3)]
-    fluc_ground = [interpn(DNS_grid, data[eval_key[i+6]], eval_grid).reshape(31,88,410) - data[eval_key[i+10]].reshape(32,88,410)[:31,:,:] for i in range(3)]
-    p_cent = interpn(DNS_grid, data['p1'], eval_grid).reshape(31,88,410)
-    fluc_ground.append(p_cent-np.mean(p_cent))
-    V_mag = np.sqrt(fluc_ground[0]**2+fluc_ground[1]**2+fluc_ground[2]**2)
-    div_list = [V_mag, V_mag, V_mag, fluc_ground[-1]]
-    fluc_ground[-1] = (fluc_ground[-1]*u_ref_n**2 - 0.0025*eval_grid[:,1].reshape(31,88,410)[0,0,:]*x_ref_n)/u_ref_n**2
-
-
     checkpoint_list = sorted(glob(run.c.model_out_dir+'/*.pkl'), key=lambda x: int(x.split('_')[4].split('.')[0]))
-    pre_error_list = []
     vel_error_list = []
     acc_error_list = []
+    acc_error_list_t = []
     pos_ref = all_params["domain"]["in_max"].flatten()
     vel_ref = np.array([all_params["data"]["u_ref"],
                         all_params["data"]["v_ref"],
@@ -185,20 +158,15 @@ if __name__ == "__main__":
     ref_key = ['t_ref', 'x_ref', 'y_ref', 'z_ref', 'u_ref', 'v_ref', 'w_ref']
     ref_data = {ref_key[i]:ref_val for i, ref_val in enumerate(np.concatenate([pos_ref,vel_ref]))}
 
-    eval_grid_n = np.concatenate([np.zeros((eval_grid.shape[0],1))+timestep*(1/17594),
-                                eval_grid[:,1:2], eval_grid[:,0:1], eval_grid[:,2:3]],1)
-    for i in range(eval_grid_n.shape[1]): eval_grid_n[:,i] = eval_grid_n[:,i]/ref_data[ref_key[i]] 
-
-    p_cent3 = p_cent - 0.0025*eval_grid[:,1].reshape(31,88,410)[0,0,:]*1.185*x_ref_n/u_ref_n**2
-    p_cent3 = p_cent3 - np.mean(p_cent3)    
-    indexes, counts = np.unique(train_data['pos'][:,0], return_counts=True)
+    indexes, counts = np.unique(valid_data['pos'][:,0], return_counts=True)
+    indexes2, counts2 = np.unique(train_data['pos'][:,0], return_counts=True)
     g = 0
-
+    output_keys = ['u', 'v', 'w', 'p']
+    timestep = 25
     for checkpoint in checkpoint_list:
         print(g)
         with open(checkpoint,'rb') as f:
             a = pickle.load(f)
-        all_params, model_fn, train_data, valid_data = run.test()
 
         model = Model(all_params["network"]["layers"], model_fn)
         all_params["network"]["layers"] = from_state_dict(model, a).params
@@ -206,36 +174,44 @@ if __name__ == "__main__":
 
         acc = np.concatenate([acc_cal(all_params["network"]["layers"], 
                                       all_params, 
-                                      train_data['pos'][np.sum(counts[:timestep]):np.sum(counts[:(timestep+1)])][10000*s:10000*(s+1)], 
+                                      valid_data['pos'][np.sum(counts[:timestep]):np.sum(counts[:(timestep+1)])][10000*s:10000*(s+1)], 
                                       model_fn) 
-                              for s in range(train_data['pos'][np.sum(counts[:timestep]):np.sum(counts[:(timestep+1)])].shape[0]//10000+1)],0)
-        pred = np.concatenate([model_fn(all_params, 
-                                        eval_grid_n[10000*i:10000*(i+1),:]) 
-                               for i in range(eval_grid_n.shape[0]//10000+1)],0)
+                              for s in range(valid_data['pos'][np.sum(counts[:timestep]):np.sum(counts[:(timestep+1)])].shape[0]//10000+1)],0)
+        acc_t = np.concatenate([acc_cal(all_params["network"]["layers"], 
+                                      all_params, 
+                                      train_data['pos'][np.sum(counts2[:timestep]):np.sum(counts2[:(timestep+1)])][10000*s:10000*(s+1)], 
+                                      model_fn) 
+                              for s in range(train_data['pos'][np.sum(counts2[:timestep]):np.sum(counts2[:(timestep+1)])].shape[0]//10000+1)],0)
+        pred = model_fn(all_params, valid_data['pos'][np.sum(counts[:timestep]):np.sum(counts[:(timestep+1)])])
         ref_key = ['t_ref', 'x_ref', 'y_ref', 'z_ref', 'u_ref', 'v_ref', 'w_ref', 'u_ref']
         pred_ = np.concatenate([pred[:,i:i+1]*ref_data[ref_key[i+4]] for i in range(4)],1)
-        pred_[:,-1] = pred_[:,-1]*1.185
-        pred_[:,-1] = pred_[:,-1] - np.mean(pred_[:,-1])
-        fluc_pred = [pred_[:,i].reshape(31,88,410) - data[eval_key[i+10]].reshape(32,88,410)[:31,:,:] for i in range(3)]
-
-        f = np.concatenate([(fluc_pred[0]-fluc_ground[0]).reshape(-1,1), 
-                            (fluc_pred[1]-fluc_ground[1]).reshape(-1,1), 
-                            (fluc_pred[2]-fluc_ground[2]).reshape(-1,1)],1)
-        div = np.concatenate([fluc_ground[0].reshape(-1,1), fluc_ground[1].reshape(-1,1), 
-                            fluc_ground[2].reshape(-1,1)],1)
-        f2 = np.concatenate([(acc[:,0]-train_data['acc'][np.sum(counts[:timestep]):np.sum(counts[:(timestep+1)])][:,0]).reshape(-1,1), 
-                                (acc[:,1]-train_data['acc'][np.sum(counts[:timestep]):np.sum(counts[:(timestep+1)])][:,1]).reshape(-1,1), 
-                                (acc[:,2]-train_data['acc'][np.sum(counts[:timestep]):np.sum(counts[:(timestep+1)])][:,2]).reshape(-1,1)],1)
-        div2 = np.concatenate([train_data['acc'][:,0].reshape(-1,1), train_data['acc'][:,1].reshape(-1,1), 
-                                train_data['acc'][:,2].reshape(-1,1)],1)   
-        pre_error_list.append(np.linalg.norm(pred_[:,-1:].reshape(31,88,410)-p_cent3)/np.linalg.norm(p_cent3))
+        
+        output_ext = {output_keys[i]:valid_data['vel'][np.sum(counts[:timestep]):np.sum(counts[:(timestep+1)]),i] for i in range(3)}
+        output_ext_acc = {output_keys[i]:valid_data['acc'][np.sum(counts[:timestep]):np.sum(counts[:(timestep+1)]),i] for i in range(3)}
+        output_ext_acc_t = {output_keys[i]:train_data['acc'][np.sum(counts2[:timestep]):np.sum(counts2[:(timestep+1)]),i] for i in range(3)}
+        f = np.concatenate([(pred_[:,0]-output_ext['u']).reshape(-1,1), 
+            (pred_[:,1]-output_ext['v']).reshape(-1,1), 
+            (pred_[:,2]-output_ext['w']).reshape(-1,1)],1)
+        div = np.concatenate([output_ext['u'].reshape(-1,1), output_ext['v'].reshape(-1,1), 
+                              output_ext['w'].reshape(-1,1)],1)
+        f2 = np.concatenate([(acc[:,0]-output_ext_acc['u']).reshape(-1,1), 
+                                (acc[:,1]-output_ext_acc['v']).reshape(-1,1), 
+                                (acc[:,2]-output_ext_acc['w']).reshape(-1,1)],1)
+        div2 = np.concatenate([output_ext_acc['u'].reshape(-1,1), output_ext_acc['v'].reshape(-1,1), 
+                               output_ext_acc['w'].reshape(-1,1)],1)
+        f3 = np.concatenate([(acc_t[:,0]-output_ext_acc_t['u']).reshape(-1,1), 
+                                (acc_t[:,1]-output_ext_acc_t['v']).reshape(-1,1), 
+                                (acc_t[:,2]-output_ext_acc_t['w']).reshape(-1,1)],1)
+        div3 = np.concatenate([output_ext_acc_t['u'].reshape(-1,1), output_ext_acc_t['v'].reshape(-1,1), 
+                               output_ext_acc_t['w'].reshape(-1,1)],1)
         vel_error_list.append(np.linalg.norm(f, ord='fro')/np.linalg.norm(div,ord='fro'))
         acc_error_list.append(np.linalg.norm(f2, ord='fro')/np.linalg.norm(div2,ord='fro'))
+        acc_error_list_t.append(np.linalg.norm(f3, ord='fro')/np.linalg.norm(div3,ord='fro'))
         g = g+1
-    pre_error = np.array(pre_error_list)
     vel_error = np.array(vel_error_list)
     acc_error = np.array(acc_error_list)
-    tol_error = np.concatenate([vel_error.reshape(-1,1),pre_error.reshape(-1,1),acc_error.reshape(-1,1)],1)
+    acc_error_t = np.array(acc_error_list_t)
+    tol_error = np.concatenate([vel_error.reshape(-1,1),acc_error.reshape(-1,1),acc_error_t.reshape(-1,1)],1)
 
     if os.path.isdir("datas/"+checkpoint_fol):
         pass
