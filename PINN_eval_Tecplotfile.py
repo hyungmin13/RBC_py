@@ -194,5 +194,5 @@ if __name__ == "__main__":
         tecplot_Mesh(filename, X, Y, Z, x_e.reshape(-1), y_e.reshape(-1), z_e.reshape(-1), vars, fw)
         total = np.concatenate([uvwp, acc, vor_mag.reshape(-1,1), Q.reshape(-1,1)],1)
         with open("Tecplot_data/"+checkpoint_fol+"/QUD_eval_"+str(timestep)+".pickle", 'wb') as f:
-            pickle.dump(ref_data, f)
+            pickle.dump(total, f)
 
