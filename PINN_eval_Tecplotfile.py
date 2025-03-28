@@ -41,11 +41,11 @@ class PINN(PINNbase):
         all_params["problem"] = self.c.problem.init_params(**self.c.problem_init_kwargs)
         optimiser = self.c.optimization_init_kwargs["optimiser"](self.c.optimization_init_kwargs["learning_rate"])
         grids, all_params = self.c.domain.sampler(all_params)
-        train_data,valid_data, all_params = self.c.data.train_data(all_params)
+        train_data, all_params = self.c.data.train_data(all_params)
         all_params = self.c.problem.constraints(all_params)
         #valid_data = self.c.problem.exact_solution(all_params)
         model_fn = c.network.network_fn
-        return all_params, model_fn, train_data, valid_data, grids
+        return all_params, model_fn, train_data, grids
     
 def equ_func(all_params, g_batch, cotangent, model_fns):
     def u_t(batch):
