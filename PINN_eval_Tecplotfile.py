@@ -145,7 +145,7 @@ if __name__ == "__main__":
     checkpoint_list = sorted(glob(run.c.model_out_dir+'/*.pkl'), key=lambda x: int(x.split('_')[4].split('.')[0]))
     with open(checkpoint_list[-1],'rb') as f:
         a = pickle.load(f)
-    all_params, model_fn, train_data, valid_data, grids = run.test()
+    all_params, model_fn, train_data, grids = run.test()
 
     model = Model(all_params["network"]["layers"], model_fn)
     all_params["network"]["layers"] = from_state_dict(model, a).params
